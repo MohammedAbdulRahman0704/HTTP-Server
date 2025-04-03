@@ -13,14 +13,20 @@ def main():
 
         print("Received request:\n", request_data)  # Debugging
 
-        # HTTP 200 OK response
-        response = (
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 13\r\n"
-            "\r\n"
-            "Hello, world!"
-        )
+        # Extract the first line (Request Line)
+        request_line = request_data.split("\r\n")[0]  
+        parts = request_line.split(" ")
+
+        if len(parts) > 1:
+            path = parts[1]  # Extract URL path
+        else:
+            path = "/"
+
+        # Determine response based on path
+        if path == "/":
+            response = "HTTP/1.1 200 OK\r\n\r\n"
+        else:
+            response = "HTTP/1.1 404 Not Found\r\n\r\n"
 
         client_socket.sendall(response.encode())  # Send response
         client_socket.close()  # Close connection
