@@ -14,7 +14,7 @@ def main():
         print("Received request:\n", request_data)  # Debugging
 
         # Extract the first line (Request Line)
-        request_line = request_data.split("\r\n")[0]  
+        request_line = request_data.split("\r\n")[0]
         parts = request_line.split(" ")
 
         if len(parts) > 1:
@@ -22,9 +22,21 @@ def main():
         else:
             path = "/"
 
-        # Determine response based on path
-        if path == "/":
+        # Handle `/echo/{str}` endpoint
+        if path.startswith("/echo/"):
+            echo_string = path[len("/echo/"):]  # Extract the string after "/echo/"
+            response_body = echo_string
+            response_headers = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                f"Content-Length: {len(response_body)}\r\n"
+                "\r\n"
+            )
+            response = response_headers + response_body
+
+        elif path == "/":
             response = "HTTP/1.1 200 OK\r\n\r\n"
+
         else:
             response = "HTTP/1.1 404 Not Found\r\n\r\n"
 
