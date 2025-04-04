@@ -1,87 +1,34 @@
 import socket
 import threading
-import os
 import sys
-
-# Global variable to hold directory path
-FILES_DIR = None
-
-
-def handle_client(client_socket):
-    request_data = client_socket.recv(1024).decode()
-    print("Received request:\n", request_data)
-
-    lines = request_data.split("\r\n")
-    if len(lines) == 0:
-        client_socket.close()
-        return
-
-    request_line = lines[0]
-    parts = request_line.split(" ")
-
-    if len(parts) < 2:
-        client_socket.close()
-        return
-
-    method, path = parts[0], parts[1]
-
-    # File serving logic
-    if path.startswith("/files/"):
-        filename = path[len("/files/"):]
-        file_path = os.path.join(FILES_DIR, filename)
-
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            with open(file_path, "rb") as f:
-                file_contents = f.read()
-
-            response_headers = (
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: application/octet-stream\r\n"
-                f"Content-Length: {len(file_contents)}\r\n"
-                "\r\n"
-            )
-            client_socket.sendall(response_headers.encode() + file_contents)
-        else:
-            response = "HTTP/1.1 404 Not Found\r\n\r\n"
-            client_socket.sendall(response.encode())
-
-        client_socket.close()
-        return
-
-    # Handle other endpoints if required (like `/echo/`, `/user-agent/`)
-
-    # Unknown path fallback
-    response = "HTTP/1.1 404 Not Found\r\n\r\n"
-    client_socket.sendall(response.encode())
-    client_socket.close()
-
-
 def main():
-    global FILES_DIR
-
-    print("Logs from your program will appear here!")
-
-    # Parse --directory argument
-    if "--directory" in sys.argv:
-        dir_index = sys.argv.index("--directory") + 1
-        if dir_index < len(sys.argv):
-            FILES_DIR = sys.argv[dir_index]
+    def handle_req(client, addr):
+        data = client.recv(1024).decode()
+        req = data.split("\r\n")
+        path = req[0].split(" ")[1]
+        if path == "/":
+            response = "HTTP/1.1 200 OK\r\n\r\n".encode()
+        elif path.startswith("/echo"):
+            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(path[6:])}\r\n\r\n{path[6:]}".encode()
+        elif path.startswith("/user-agent"):
+            user_agent = req[2].split(": ")[1]
+            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(user_agent)}\r\n\r\n{user_agent}".encode()
+        elif path.startswith("/files"):
+            directory = sys.argv[2]
+            filename = path[7:]
+            print(directory, filename)
+            try:
+                with open(f"/{directory}/{filename}", "r") as f:
+                    body = f.read()
+                response = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(body)}\r\n\r\n{body}".encode()
+            except Exception as e:
+                response = f"HTTP/1.1 404 Not Found\r\n\r\n".encode()
         else:
-            print("Error: --directory flag provided but no path given")
-            sys.exit(1)
-    else:
-        print("Error: --directory flag is required")
-        sys.exit(1)
-
-    print(f"Serving files from: {FILES_DIR}")
-
+            response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+        client.send(response)
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    server_socket.listen()
-
     while True:
-        client_socket, _ = server_socket.accept()
-        threading.Thread(target=handle_client, args=(client_socket,)).start()
-
-
+        client, addr = server_socket.accept()
+        threading.Thread(target=handle_req, args=(client, addr)).start()
 if __name__ == "__main__":
     main()
