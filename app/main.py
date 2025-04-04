@@ -1,5 +1,10 @@
 import socket
-import threading  # Import threading for concurrency
+import threading
+import os
+import sys
+
+# Global variable for directory
+FILES_DIRECTORY = ""
 
 
 def handle_client(client_socket):
@@ -50,6 +55,27 @@ def handle_client(client_socket):
         )
         response = response_headers + response_body
 
+    # Handle `/files/{filename}` endpoint
+    elif path.startswith("/files/"):
+        filename = path[len("/files/"):]  # Extract filename
+        file_path = os.path.join(FILES_DIRECTORY, filename)
+
+        if os.path.isfile(file_path):  # Check if file exists
+            with open(file_path, "rb") as file:
+                file_content = file.read()
+
+            response_headers = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/octet-stream\r\n"
+                f"Content-Length: {len(file_content)}\r\n"
+                "\r\n"
+            )
+            client_socket.sendall(response_headers.encode() + file_content)
+            client_socket.close()
+            return
+        else:
+            response = "HTTP/1.1 404 Not Found\r\n\r\n"
+
     # Handle root `/`
     elif path == "/":
         response = "HTTP/1.1 200 OK\r\n\r\n"
@@ -63,7 +89,21 @@ def handle_client(client_socket):
 
 
 def main():
-    print("Logs from your program will appear here!")
+    global FILES_DIRECTORY
+
+    # Parse command-line arguments
+    if "--directory" in sys.argv:
+        dir_index = sys.argv.index("--directory") + 1
+        if dir_index < len(sys.argv):
+            FILES_DIRECTORY = sys.argv[dir_index]
+        else:
+            print("Error: --directory flag requires a path")
+            sys.exit(1)
+    else:
+        print("Error: --directory flag is required")
+        sys.exit(1)
+
+    print(f"Serving files from: {FILES_DIRECTORY}")
 
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     server_socket.listen()  # Listen for incoming connections
