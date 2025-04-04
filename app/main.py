@@ -13,14 +13,24 @@ def main():
 
         print("Received request:\n", request_data)  # Debugging
 
-        # Extract the first line (Request Line)
-        request_line = request_data.split("\r\n")[0]
+        # Split request into lines
+        lines = request_data.split("\r\n")
+
+        # Extract request line (first line)
+        request_line = lines[0]
         parts = request_line.split(" ")
 
         if len(parts) > 1:
             path = parts[1]  # Extract URL path
         else:
             path = "/"
+
+        # Extract headers into a dictionary
+        headers = {}
+        for line in lines[1:]:
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                headers[key] = value
 
         # Handle `/echo/{str}` endpoint
         if path.startswith("/echo/"):
@@ -34,9 +44,23 @@ def main():
             )
             response = response_headers + response_body
 
+        # Handle `/user-agent` endpoint
+        elif path == "/user-agent":
+            user_agent = headers.get("User-Agent", "")  # Get User-Agent or empty string
+            response_body = user_agent
+            response_headers = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                f"Content-Length: {len(response_body)}\r\n"
+                "\r\n"
+            )
+            response = response_headers + response_body
+
+        # Handle root `/`
         elif path == "/":
             response = "HTTP/1.1 200 OK\r\n\r\n"
 
+        # Handle unknown paths
         else:
             response = "HTTP/1.1 404 Not Found\r\n\r\n"
 
