@@ -1,6 +1,8 @@
 import socket
 import threading
 import sys
+import gzip
+import io
 
 def main():
     def handle_req(client, addr):
@@ -36,19 +38,25 @@ def main():
             response = "HTTP/1.1 200 OK\r\n\r\n".encode()
 
         elif path.startswith("/echo"):
-            content = path[6:]
+            content = path[6:].encode()
             response_headers = [
                 "HTTP/1.1 200 OK",
                 "Content-Type: text/plain"
             ]
 
-            # Add gzip header only if client accepts it
             if "gzip" in accept_encoding.lower():
-                response_headers.append("Content-Encoding: gzip")
+                # Compress using gzip
+                buf = io.BytesIO()
+                with gzip.GzipFile(fileobj=buf, mode='wb') as gz_file:
+                    gz_file.write(content)
+                compressed_content = buf.getvalue()
 
-            response_headers.append(f"Content-Length: {len(content)}")
-            response = "\r\n".join(response_headers) + "\r\n\r\n" + content
-            response = response.encode()
+                response_headers.append("Content-Encoding: gzip")
+                response_headers.append(f"Content-Length: {len(compressed_content)}")
+                response = "\r\n".join(response_headers).encode() + b"\r\n\r\n" + compressed_content
+            else:
+                response_headers.append(f"Content-Length: {len(content)}")
+                response = "\r\n".join(response_headers).encode() + b"\r\n\r\n" + content
 
         elif path.startswith("/user-agent"):
             user_agent = headers.get("User-Agent", "")
