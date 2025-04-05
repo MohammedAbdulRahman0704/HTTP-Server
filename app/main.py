@@ -1,100 +1,79 @@
 import socket
 import threading
-import argparse
-import os
-FILE_DIR = ""
-def create_headers(headers: dict):
-    return "\r\n".join([f"{k}: {v}" for k, v in headers.items()])
-def create_response(client, status: str, headers: dict, body: bytes):
-    resp = f"HTTP/1.1 {status}\r\n"
-    if len(headers) > 0:
-        resp += create_headers(headers) + "\r\n"
-    resp += "\r\n"
-    if len(body) > 0:
-        resp += body.decode()
-    client.send(resp.encode())
-    client.close()
-    return
-def extract_headers(data):
-    values = {}
-    for d in data:
-        k = d.split(":")[0]
-        v = d[len(k) + 2 :]
-        v = v.replace("\r\n", "")
-        values[k] = v
-    return values
-def handle_client(client):
-    global FILE_DIR
-    data = client.recv(1024)
-    if b"\r\n\r\n" not in data:
-        client.close()
-        return
-    header_data = data[: data.find(b"\r\n\r\n")].decode().split("\r\n")
-    body_data = data[data.find(b"\r\n\r\n") + 4 :]
-    headers = extract_headers(header_data[1:])
-    path_data = header_data[0].split(" ")
-    path_type = path_data[0]
-    path_path = path_data[1]
-    path_http = path_data[2]
-    if path_path == "/":
-        client.send("HTTP/1.1 200 OK\r\n\r\n".encode())
-        client.close()
-    else:
-        if "/files/" in path_path:
-            file = path_path[path_path.find("/files/") + 7 :]
-            p = f"{FILE_DIR}{file}"
-            if path_type == "GET":
-                if not os.path.exists(p):
-                    client.send("HTTP/1.1 404 Not Found\r\n\r\n".encode())
-                    client.close()
-                    return
-                contents = open(p, "rb").read()
-                return create_response(
-                    client,
-                    "200 OK",
-                    {
-                        "Content-Type": "application/octet-stream",
-                        "Content-Length": len(contents),
-                    },
-                    contents,
-                )
-            if path_type == "POST":
-                with open(p, "wb") as out:
-                    out.write(body_data)
-                client.send("HTTP/1.1 201 OK\r\n\r\n".encode())
-                client.close()
-                return
-        if "/echo/" in path_path:
-            echo = path_path[path_path.find("/echo/") + 6 :]
-            return create_response(
-                client,
-                "200 OK",
-                {"Content-Type": "text/plain", "Content-Length": len(echo)},
-                echo.encode(),
-            )
-        if "/user-agent" in path_path:
-            return create_response(
-                client,
-                "200 OK",
-                {
-                    "Content-Type": "text/plain",
-                    "Content-Length": len(headers["User-Agent"]),
-                },
-                headers["User-Agent"].encode(),
-            )
-        client.send("HTTP/1.1 404 Not Found\r\n\r\n".encode())
-        client.close()
-        return
+import sys
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--directory")
-    args = parser.parse_args()
-    if "directory" in args:
-        global FILE_DIR
-        FILE_DIR = args.directory
-    server_socket = socket.create_server(("localhost", 4221))  # , reuse_port=True
+    def handle_req(client, addr):
+        data = client.recv(1024)
+        req = data.decode().split("\r\n")
+
+        if not req or len(req[0].split(" ")) < 2:
+            client.close()
+            return
+
+        method, path = req[0].split(" ")[0], req[0].split(" ")[1]
+        headers = {}
+        body = b""
+
+        # Parse headers
+        i = 1
+        while req[i]:
+            key, value = req[i].split(": ", 1)
+            headers[key] = value
+            i += 1
+
+        # Read body if POST
+        content_length = int(headers.get("Content-Length", 0))
+        header_bytes_len = len("\r\n".join(req[:i + 1])) + 2
+        body = data[header_bytes_len:]
+        while len(body) < content_length:
+            body += client.recv(1024)
+
+        if path == "/":
+            response = "HTTP/1.1 200 OK\r\n\r\n".encode()
+
+        elif path.startswith("/echo"):
+            content = path[6:]
+            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(content)}\r\n\r\n{content}".encode()
+
+        elif path.startswith("/user-agent"):
+            user_agent = headers.get("User-Agent", "")
+            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(user_agent)}\r\n\r\n{user_agent}".encode()
+
+        elif path.startswith("/files"):
+            directory = sys.argv[2]  # --directory path
+            filename = path[7:]
+            file_path = f"{directory}/{filename}"
+
+            if method == "GET":
+                try:
+                    with open(file_path, "r") as f:
+                        body_content = f.read()
+                    response = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(body_content)}\r\n\r\n{body_content}".encode()
+                except Exception:
+                    response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+
+            elif method == "POST":
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(body)
+                    response = "HTTP/1.1 201 Created\r\n\r\n".encode()
+                except Exception:
+                    response = "HTTP/1.1 500 Internal Server Error\r\n\r\n".encode()
+
+            else:
+                response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n".encode()
+
+        else:
+            response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+
+        client.send(response)
+        client.close()
+
+    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     while True:
-        client, _ = server_socket.accept()  # wait for client
-        threading.Thread(target=handle_client, args=(client,)).start()
+        client, addr = server_socket.accept()
+        threading.Thread(target=handle_req, args=(client, addr)).start()
+
 if __name__ == "__main__":
     main()
