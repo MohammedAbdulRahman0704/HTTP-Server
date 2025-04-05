@@ -5,7 +5,7 @@ import sys
 def main():
     def handle_req(client, addr):
         data = client.recv(1024)
-        req = data.decode().split("\r\n")
+        req = data.decode(errors="ignore").split("\r\n")
 
         if not req or len(req[0].split(" ")) < 2:
             client.close()
@@ -18,8 +18,9 @@ def main():
         # Parse headers
         i = 1
         while req[i]:
-            key, value = req[i].split(": ", 1)
-            headers[key] = value
+            if ": " in req[i]:
+                key, value = req[i].split(": ", 1)
+                headers[key] = value
             i += 1
 
         # Read body if POST
@@ -29,12 +30,25 @@ def main():
         while len(body) < content_length:
             body += client.recv(1024)
 
+        accept_encoding = headers.get("Accept-Encoding", "")
+
         if path == "/":
             response = "HTTP/1.1 200 OK\r\n\r\n".encode()
 
         elif path.startswith("/echo"):
             content = path[6:]
-            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(content)}\r\n\r\n{content}".encode()
+            response_headers = [
+                "HTTP/1.1 200 OK",
+                "Content-Type: text/plain"
+            ]
+
+            # Add gzip header only if client accepts it
+            if "gzip" in accept_encoding.lower():
+                response_headers.append("Content-Encoding: gzip")
+
+            response_headers.append(f"Content-Length: {len(content)}")
+            response = "\r\n".join(response_headers) + "\r\n\r\n" + content
+            response = response.encode()
 
         elif path.startswith("/user-agent"):
             user_agent = headers.get("User-Agent", "")
@@ -60,7 +74,6 @@ def main():
                     response = "HTTP/1.1 201 Created\r\n\r\n".encode()
                 except Exception:
                     response = "HTTP/1.1 500 Internal Server Error\r\n\r\n".encode()
-
             else:
                 response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n".encode()
 
